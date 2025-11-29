@@ -44,9 +44,18 @@ export interface SmartDevice {
   battery?: number;
 }
 
+export interface DesktopState {
+  isFocusMode: boolean;
+  cpuUsage: number;
+  ramUsage: number;
+  openApps: string[];
+  performanceMode: 'balanced' | 'high_performance' | 'power_saver';
+}
+
 export interface DeviceAction {
   device: string;
   action: string;
+  appName?: string; // For desktop control
 }
 
 export interface User {

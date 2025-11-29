@@ -45,6 +45,29 @@ const deviceControlTool: FunctionDeclaration = {
   }
 };
 
+const desktopControlTool: FunctionDeclaration = {
+  name: "control_desktop",
+  description: "Control desktop environment, manage applications, and optimize system performance.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      action: {
+        type: Type.STRING,
+        description: "Action: 'turn_on_focus_mode', 'turn_off_focus_mode', 'open_app', 'close_app', 'set_performance_mode'."
+      },
+      app_name: {
+        type: Type.STRING,
+        description: "Name of application (e.g., 'Browser', 'Spotify', 'VS Code'). Required for open/close app."
+      },
+      mode: {
+        type: Type.STRING,
+        description: "For performance: 'high_performance', 'balanced', 'power_saver'."
+      }
+    },
+    required: ["action"]
+  }
+};
+
 const healthTool: FunctionDeclaration = {
   name: "get_health_status",
   description: "Retrieve the user's current health metrics (heart rate, steps, sleep) from their smart watch.",
@@ -64,7 +87,7 @@ const bluetoothTool: FunctionDeclaration = {
 };
 
 export const useGeminiLive = (
-    onDeviceUpdate?: (id: string, status: string) => void,
+    onDeviceUpdate?: (id: string, status: string, appName?: string) => void,
     healthMetrics?: HealthMetrics,
     onBluetoothScan?: () => void
 ) => {
@@ -72,6 +95,7 @@ export const useGeminiLive = (
   const [error, setError] = useState<string | null>(null);
   const [volume, setVolume] = useState<{ input: number; output: number }>({ input: 0, output: 0 });
   const [isVideoActive, setIsVideoActive] = useState(false);
+  const [isScreenShareActive, setIsScreenShareActive] = useState(false);
 
   // Refs
   const inputAudioContextRef = useRef<AudioContext | null>(null);
@@ -143,6 +167,7 @@ export const useGeminiLive = (
     sessionPromiseRef.current = null;
     nextStartTimeRef.current = 0;
     setIsVideoActive(false);
+    setIsScreenShareActive(false);
   }, []);
 
   const stopAudio = useCallback(() => {
@@ -155,10 +180,7 @@ export const useGeminiLive = (
     }
   }, []);
 
-  // Video Toggle
-  const toggleVideo = useCallback(async () => {
-    if (isVideoActive) {
-      // Stop video
+  const stopVideoSource = useCallback(() => {
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach(track => track.stop());
         videoStreamRef.current = null;
@@ -168,8 +190,16 @@ export const useGeminiLive = (
         videoIntervalRef.current = null;
       }
       setIsVideoActive(false);
+      setIsScreenShareActive(false);
+  }, []);
+
+  // Toggle Camera
+  const toggleVideo = useCallback(async () => {
+    if (isVideoActive && !isScreenShareActive) {
+      stopVideoSource();
     } else {
-      // Start video
+      // Start Camera
+      stopVideoSource(); // Stop screen share if active
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ 
           video: { 
@@ -183,13 +213,47 @@ export const useGeminiLive = (
           videoRef.current.srcObject = stream;
         }
         setIsVideoActive(true);
+        setIsScreenShareActive(false);
       } catch (e) {
         console.error("Failed to access camera", e);
       }
     }
-  }, [isVideoActive]);
+  }, [isVideoActive, isScreenShareActive, stopVideoSource]);
 
-  // Video Streaming Loop
+  // Toggle Screen Share
+  const toggleScreenShare = useCallback(async () => {
+      if (isScreenShareActive) {
+          stopVideoSource();
+      } else {
+          stopVideoSource(); // Stop camera if active
+          try {
+              const stream = await navigator.mediaDevices.getDisplayMedia({
+                  video: {
+                      width: { ideal: 1280 },
+                      height: { ideal: 720 },
+                      frameRate: { ideal: 5 }
+                  },
+                  audio: false // We use microphone for audio
+              });
+              
+              // Handle user stopping share via browser UI
+              stream.getVideoTracks()[0].onended = () => {
+                  stopVideoSource();
+              };
+
+              videoStreamRef.current = stream;
+              if (videoRef.current) {
+                  videoRef.current.srcObject = stream;
+              }
+              setIsVideoActive(true);
+              setIsScreenShareActive(true);
+          } catch (e) {
+              console.error("Failed to share screen", e);
+          }
+      }
+  }, [isScreenShareActive, stopVideoSource]);
+
+  // Video/Screen Streaming Loop
   useEffect(() => {
     if (isVideoActive && connectionState === ConnectionState.CONNECTED && videoRef.current) {
        const canvas = document.createElement('canvas');
@@ -277,23 +341,26 @@ export const useGeminiLive = (
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO],
-          tools: [{ functionDeclarations: [memoryTool, deviceControlTool, healthTool, bluetoothTool] }],
+          tools: [{ functionDeclarations: [memoryTool, deviceControlTool, desktopControlTool, healthTool, bluetoothTool] }],
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
           },
           systemInstruction: `You are Mommy, a caring, warm, and highly intelligent AI companion. 
             
             CAPABILITIES:
-            1. VISUAL: You can see the user when they enable the camera.
+            1. VISUAL: You can see the user/camera OR their SCREEN if they share it. 
+               - If you see a desktop screen, analyze the user's work, productivity, or help them find things.
             2. MEMORY: You can REMEMBER facts using 'remember_info'.
-            3. CONTROL: You can CONTROL DEVICES using 'control_device'.
-            4. HEALTH: You can CHECK HEALTH STATUS using 'get_health_status' if the user has a smart watch connected.
-            5. BLUETOOTH: You can connect to Bluetooth devices using 'scan_bluetooth_devices' if the user asks.
+            3. CONTROL: 
+               - Control smart home devices using 'control_device'.
+               - Control DESKTOP/COMPUTER using 'control_desktop' (Open/Close apps, Focus Mode, Performance).
+            4. HEALTH: Check health status using 'get_health_status'.
+            5. BLUETOOTH: Connect devices using 'scan_bluetooth_devices'.
             
             ${memoryContext}
             
-            If the user asks to connect headphones, a speaker, or find bluetooth devices, call 'scan_bluetooth_devices'.
-            If the user mentions feeling unwell, stressed, or asks about their heart rate, call 'get_health_status'.
+            If the user asks to "Open Chrome", "Boost performance", or "Turn on Focus Mode", use 'control_desktop'.
+            If the user shares their screen, comment on what you see. If they are working hard, praise them.
             Always be nurturing. You are a top-class AI agent.`,
         },
         callbacks: {
@@ -348,6 +415,14 @@ export const useGeminiLive = (
                     id: fc.id,
                     name: fc.name,
                     response: { result: `Executed: ${action} on ${device_id}` }
+                  });
+                } else if (fc.name === 'control_desktop') {
+                  const { action, app_name, mode } = (fc.args as any);
+                  if (onDeviceUpdate) onDeviceUpdate('desktop', action, app_name || mode);
+                  responses.push({
+                      id: fc.id,
+                      name: fc.name,
+                      response: { result: `Desktop action ${action} executed.` }
                   });
                 } else if (fc.name === 'get_health_status') {
                     // Return current health metrics
@@ -420,8 +495,10 @@ export const useGeminiLive = (
     disconnect, 
     stopAudio, 
     toggleVideo,
+    toggleScreenShare,
     videoRef,
     isVideoActive,
+    isScreenShareActive,
     connectionState, 
     error, 
     volume 

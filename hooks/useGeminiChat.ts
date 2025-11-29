@@ -30,6 +30,20 @@ const deviceControlTool: FunctionDeclaration = {
   }
 };
 
+const desktopControlTool: FunctionDeclaration = {
+  name: "control_desktop",
+  description: "Control desktop environment, manage applications.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      action: { type: Type.STRING, description: "Action: 'open_app', 'close_app', 'turn_on_focus_mode'." },
+      app_name: { type: Type.STRING, description: "Name of application." },
+      mode: { type: Type.STRING, description: "Performance mode." }
+    },
+    required: ["action"]
+  }
+};
+
 const healthTool: FunctionDeclaration = {
   name: "get_health_status",
   description: "Retrieve user's health metrics from smart watch.",
@@ -39,7 +53,7 @@ const healthTool: FunctionDeclaration = {
 const STORAGE_KEY = 'mommy_chat_history';
 
 export const useGeminiChat = (
-    onDeviceUpdate?: (id: string, status: string) => void,
+    onDeviceUpdate?: (id: string, status: string, appName?: string) => void,
     healthMetrics?: HealthMetrics
 ) => {
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -65,30 +79,27 @@ export const useGeminiChat = (
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const memoryContext = getSystemMemoryContext();
     
-    // We recreate history for the model context if needed, but for now we start fresh session-wise 
-    // while keeping UI history. To make the model aware of past chat, we'd need to map `messages` to Content objects.
-    // For simplicity in this session-based SDK usage, we just inject memory context.
-    
     const newChat = ai.chats.create({
       model: 'gemini-3-pro-preview',
       config: {
-        tools: [{ functionDeclarations: [memoryTool, deviceControlTool, healthTool] }],
-        systemInstruction: `You are Mommy, a caring mother figure. 
+        tools: [{ functionDeclarations: [memoryTool, deviceControlTool, desktopControlTool, healthTool] }],
+        systemInstruction: `You are Mommy, a caring mother figure and proficient AI agent. 
             ${memoryContext}
             Capabilities:
             - Analyze images/videos.
             - Remember info ('remember_info').
             - Control devices ('control_device').
+            - Control Desktop/Apps ('control_desktop').
             - Check health ('get_health_status') if asked about vitals.`,
       },
       history: messages.map(m => ({
         role: m.role,
-        parts: [{ text: m.text }] // Simplified history reconstruction
+        parts: [{ text: m.text }] 
       }))
     });
     setChatSession(newChat);
     return newChat;
-  }, [messages]); // Re-init if messages loaded initially, though usually we want a stable session.
+  }, [messages]); 
 
   const sendMessage = useCallback(async (text: string, attachments: Attachment[] = []) => {
     let chat = chatSession;
@@ -135,6 +146,14 @@ export const useGeminiChat = (
             const { device_id, action } = (call.args as any);
             if (onDeviceUpdate) onDeviceUpdate(device_id, action);
             if (!responseText) responseText += `\n(Updated ${device_id} to ${action}.)`;
+         }
+
+         // Desktop
+         const desktopCalls = functionCalls.filter(fc => fc.name === 'control_desktop');
+         for (const call of desktopCalls) {
+             const { action, app_name, mode } = (call.args as any);
+             if (onDeviceUpdate) onDeviceUpdate('desktop', action, app_name || mode);
+             if (!responseText) responseText += `\n(Executed desktop action: ${action})`;
          }
 
          // Health
@@ -277,7 +296,6 @@ export const useGeminiChat = (
   const clearChat = useCallback(() => {
     setMessages([]);
     localStorage.removeItem(STORAGE_KEY);
-    // Optionally reset chat session context here if needed, but creating a new chat instance in initChat handles it
     setChatSession(null);
   }, []);
 

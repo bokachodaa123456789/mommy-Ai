@@ -4,13 +4,14 @@ import AvatarVisualizer from './AvatarVisualizer';
 import SmartControlPanel from './SmartControlPanel';
 import HealthPanel from './HealthPanel';
 import { useGeminiLive } from '../hooks/useGeminiLive';
-import { ConnectionState, SmartDevice, HealthMetrics } from '../types';
-import { Mic, MicOff, Loader2, AlertCircle, Square, Camera, Eye } from 'lucide-react';
+import { ConnectionState, SmartDevice, HealthMetrics, DesktopState } from '../types';
+import { Mic, MicOff, Loader2, AlertCircle, Square, Camera, Eye, Monitor } from 'lucide-react';
 
 interface VoiceModeProps {
   hasPermission: boolean | null;
   devices: SmartDevice[];
-  onDeviceUpdate: (id: string, action: string) => void;
+  desktopState?: DesktopState;
+  onDeviceUpdate: (id: string, action: string, appName?: string) => void;
   healthMetrics: HealthMetrics;
   onConnectWatch: () => void;
   onBluetoothAdd?: (device: SmartDevice) => void;
@@ -19,6 +20,7 @@ interface VoiceModeProps {
 const VoiceMode: React.FC<VoiceModeProps> = ({ 
   hasPermission, 
   devices, 
+  desktopState,
   onDeviceUpdate,
   healthMetrics,
   onConnectWatch,
@@ -31,17 +33,6 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
             console.error("Web Bluetooth is not available in this browser.");
             return;
         }
-        
-        // This must be triggered by a user gesture, but if called via AI tool execution 
-        // which might happen async, it may be blocked by browsers.
-        // However, for the purpose of this demo, we assume the initial 'Connect' 
-        // or a subsequent button interaction enables it, or we trigger it here.
-        // Note: Browsers strictly require a user gesture (click) to show the picker.
-        // If the AI calls this tool, it won't pop up unless we are processing it within a click handler, 
-        // which we aren't here. 
-        // WORKAROUND: We will trigger the logic, but in a real app, 
-        // the AI should ask the user to "Press the scan button".
-        // For now, we will try to request.
         
         const device = await (navigator as any).bluetooth.requestDevice({
             acceptAllDevices: true,
@@ -67,8 +58,10 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
     disconnect,
     stopAudio, 
     toggleVideo,
+    toggleScreenShare,
     videoRef,
     isVideoActive,
+    isScreenShareActive,
     connectionState, 
     error, 
     volume 
@@ -99,7 +92,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
         }`} />
         <span className={`text-[10px] font-bold tracking-widest uppercase ${isConnected ? 'text-pink-200' : 'text-slate-400'}`}>
           {isConnecting ? 'Establishing Link...' : 
-           isConnected ? (isVideoActive ? 'Visual Link Active' : 'Audio Link Active') : 
+           isConnected ? (isScreenShareActive ? 'Desktop Vision Active' : isVideoActive ? 'Visual Link Active' : 'Audio Link Active') : 
            error ? 'Connection Lost' : 'System Standby'}
         </span>
       </div>
@@ -118,7 +111,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
                 autoPlay 
                 playsInline 
                 muted 
-                className="w-full h-full object-cover transform scale-x-[-1]" 
+                className={`w-full h-full object-cover ${isScreenShareActive ? '' : 'transform scale-x-[-1]'}`} 
                 />
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60 pointer-events-none" />
                 {/* PiP Avatar */}
@@ -139,7 +132,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
       <div className="text-center h-8 mb-6">
         {isConnected ? (
             <p className="text-pink-300 font-medium text-sm animate-pulse tracking-wide">
-              {volume.output > 0.05 ? "Mommy is speaking..." : (isVideoActive ? "Mommy is watching you..." : "Listening...")}
+              {volume.output > 0.05 ? "Mommy is speaking..." : (isScreenShareActive ? "Analyzing your workflow..." : isVideoActive ? "Mommy is watching you..." : "Listening...")}
             </p>
         ) : (
           <p className="text-slate-500 text-sm font-medium">
@@ -189,19 +182,25 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
                <button
                 onClick={toggleVideo}
                 className={`col-span-1 rounded-2xl border flex flex-col items-center justify-center transition-all active:scale-95 ${
-                  isVideoActive 
+                  isVideoActive && !isScreenShareActive
                   ? 'bg-indigo-500 text-white border-indigo-400 shadow-lg shadow-indigo-500/30' 
                   : 'bg-slate-800/60 border-white/5 text-slate-400 hover:text-white hover:bg-slate-700'
                 }`}
+                title="Toggle Camera"
               >
-                {isVideoActive ? <Eye className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
+                {isVideoActive && !isScreenShareActive ? <Eye className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
               </button>
 
               <button
-                onClick={stopAudio}
-                className="col-span-1 rounded-2xl bg-slate-800/60 border border-white/5 text-slate-400 hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/30 flex flex-col items-center justify-center transition-all active:scale-95"
+                onClick={toggleScreenShare}
+                 className={`col-span-1 rounded-2xl border flex flex-col items-center justify-center transition-all active:scale-95 ${
+                  isScreenShareActive
+                  ? 'bg-blue-500 text-white border-blue-400 shadow-lg shadow-blue-500/30' 
+                  : 'bg-slate-800/60 border-white/5 text-slate-400 hover:text-white hover:bg-slate-700'
+                }`}
+                title="Share Screen"
               >
-                <Square className="w-4 h-4" />
+                <Monitor className="w-5 h-5" />
               </button>
             </>
           )}
@@ -210,7 +209,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
         {/* Modules */}
         <div className="space-y-4 animate-in slide-in-from-bottom-6 fade-in duration-700 delay-100">
              <HealthPanel metrics={healthMetrics} onConnect={onConnectWatch} />
-             <SmartControlPanel devices={devices} onBluetoothAdd={handleBluetoothScan} />
+             <SmartControlPanel devices={devices} desktopState={desktopState} onBluetoothAdd={handleBluetoothScan} />
         </div>
       </div>
     </div>

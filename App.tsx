@@ -6,7 +6,7 @@ import ChatInterface from './components/ChatInterface';
 import MatrixBackground from './components/MatrixBackground';
 import AuthScreen from './components/AuthScreen';
 import { ShieldCheck, Key, Loader2, Phone, MessageSquare } from 'lucide-react';
-import { SmartDevice, User, HealthMetrics } from './types';
+import { SmartDevice, User, HealthMetrics, DesktopState } from './types';
 
 const App: React.FC = () => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
@@ -38,7 +38,35 @@ const App: React.FC = () => {
     { id: 'android_tv', name: 'Smart TV', type: 'tv', status: 'off' }
   ]);
 
-  const handleDeviceUpdate = (id: string, action: string) => {
+  // Simulated Desktop State
+  const [desktopState, setDesktopState] = useState<DesktopState>({
+      isFocusMode: false,
+      cpuUsage: 12,
+      ramUsage: 42,
+      openApps: ['Finder', 'Chrome'],
+      performanceMode: 'balanced'
+  });
+
+  const handleDeviceUpdate = (id: string, action: string, extra?: string) => {
+    // Check if it is a desktop command
+    if (id === 'desktop') {
+        const command = action.toLowerCase();
+        if (command.includes('focus') && command.includes('on')) {
+            setDesktopState(prev => ({ ...prev, isFocusMode: true }));
+        } else if (command.includes('focus') && command.includes('off')) {
+            setDesktopState(prev => ({ ...prev, isFocusMode: false }));
+        } else if (command.includes('open') && extra) {
+            setDesktopState(prev => ({ ...prev, openApps: [...new Set([...prev.openApps, extra])] }));
+        } else if (command.includes('close') && extra) {
+            setDesktopState(prev => ({ ...prev, openApps: prev.openApps.filter(app => !app.toLowerCase().includes(extra.toLowerCase())) }));
+        } else if (command.includes('performance')) {
+            // handle mode change
+            const mode = extra as any || 'high_performance';
+            setDesktopState(prev => ({ ...prev, performanceMode: mode, cpuUsage: mode === 'high_performance' ? 45 : 12 }));
+        }
+        return;
+    }
+
     setDevices(prev => prev.map(dev => {
         if (dev.id.includes(id) || id.includes(dev.id) || id.includes(dev.name.toLowerCase())) {
             let newStatus = action;
@@ -101,8 +129,18 @@ const App: React.FC = () => {
     };
     checkKey();
 
+    // Mock variable system stats
+    const sysInterval = setInterval(() => {
+        setDesktopState(prev => ({
+            ...prev,
+            cpuUsage: Math.max(5, Math.min(100, prev.cpuUsage + (Math.random() - 0.5) * 5)),
+            ramUsage: Math.max(10, Math.min(90, prev.ramUsage + (Math.random() - 0.5) * 2))
+        }));
+    }, 5000);
+
     return () => {
         if (healthIntervalRef.current) clearInterval(healthIntervalRef.current);
+        clearInterval(sysInterval);
     };
   }, []);
 
@@ -208,6 +246,7 @@ const App: React.FC = () => {
               <VoiceMode 
                 hasPermission={hasPermission} 
                 devices={devices} 
+                desktopState={desktopState}
                 onDeviceUpdate={handleDeviceUpdate}
                 healthMetrics={healthMetrics}
                 onConnectWatch={handleConnectWatch}
