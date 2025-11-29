@@ -1,0 +1,8 @@
+{
+  "name": "Mommy",
+  "description": "Your caring conversational AI companion. Developed by Prasanjit.",
+  "requestFramePermissions": [
+    "microphone",
+    "camera"
+  ]
+}
