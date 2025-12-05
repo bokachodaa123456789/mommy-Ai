@@ -5,13 +5,15 @@ import VoiceMode from './components/VoiceMode';
 import ChatInterface from './components/ChatInterface';
 import MatrixBackground from './components/MatrixBackground';
 import AuthScreen from './components/AuthScreen';
-import { ShieldCheck, Key, Loader2, Phone, MessageSquare } from 'lucide-react';
-import { SmartDevice, User, HealthMetrics, DesktopState } from './types';
+import { ShieldCheck, Key, Loader2, Phone, MessageSquare, LogOut } from 'lucide-react';
+import { SmartDevice, User, HealthMetrics, DesktopState, Mood, Task, AppProcess } from './types';
+import SystemHUD from './components/SystemHUD';
 
 const App: React.FC = () => {
   const [hasPermission, setHasPermission] = useState<boolean | null>(null);
   const [apiKeyVerified, setApiKeyVerified] = useState<boolean | null>(null);
   const [activeTab, setActiveTab] = useState<'voice' | 'chat'>('voice');
+  const [mood, setMood] = useState<Mood>('neutral');
   
   // Auth State
   const [user, setUser] = useState<User | null>(null);
@@ -44,10 +46,22 @@ const App: React.FC = () => {
       cpuUsage: 12,
       ramUsage: 42,
       openApps: ['Finder', 'Chrome'],
-      performanceMode: 'balanced'
+      performanceMode: 'balanced',
+      wifiStatus: 'connected',
+      wifiNetwork: 'MommyLink_5G',
+      driversStatus: 'optimal',
+      processes: [
+        { id: '101', name: 'System Kernel', cpu: 2.5, priority: 'high' },
+        { id: '102', name: 'WindowServer', cpu: 5.1, priority: 'high' },
+        { id: '103', name: 'Chrome', cpu: 12.4, priority: 'normal' },
+        { id: '104', name: 'Spotify', cpu: 1.2, priority: 'low' },
+        { id: '105', name: 'VS Code', cpu: 4.5, priority: 'normal' }
+      ]
   });
 
-  const handleDeviceUpdate = (id: string, action: string, extra?: string) => {
+  const [tasks, setTasks] = useState<Task[]>([]);
+
+  const handleDeviceUpdate = (id: string, action: string, extra?: string, priority?: string) => {
     // Check if it is a desktop command
     if (id === 'desktop') {
         const command = action.toLowerCase();
@@ -59,11 +73,95 @@ const App: React.FC = () => {
             setDesktopState(prev => ({ ...prev, openApps: [...new Set([...prev.openApps, extra])] }));
         } else if (command.includes('close') && extra) {
             setDesktopState(prev => ({ ...prev, openApps: prev.openApps.filter(app => !app.toLowerCase().includes(extra.toLowerCase())) }));
-        } else if (command.includes('performance')) {
-            // handle mode change
-            const mode = extra as any || 'high_performance';
-            setDesktopState(prev => ({ ...prev, performanceMode: mode, cpuUsage: mode === 'high_performance' ? 45 : 12 }));
+        } else if (command.includes('set_performance_mode')) {
+            const mode = extra as any || 'balanced';
+            setDesktopState(prev => ({ 
+                ...prev, 
+                performanceMode: mode, 
+                cpuUsage: mode === 'high_performance' ? 75 : mode === 'power_saver' ? 10 : 30 
+            }));
+        } else if (command.includes('kill_process') && extra) {
+            // extra can be app name or ID
+            setDesktopState(prev => ({
+                ...prev,
+                processes: prev.processes.filter(p => !p.name.toLowerCase().includes(extra.toLowerCase()) && p.id !== extra)
+            }));
+        } else if (command.includes('set_app_priority') && extra && priority) {
+             setDesktopState(prev => ({
+                ...prev,
+                processes: prev.processes.map(p => {
+                    if (p.name.toLowerCase().includes(extra.toLowerCase()) || p.id === extra) {
+                        return { ...p, priority: priority as any };
+                    }
+                    return p;
+                })
+            }));
         }
+        return;
+    }
+
+    if (id === 'download') {
+        if (action === 'start' && extra) {
+            // Simulate download start
+            setDesktopState(prev => ({ 
+                ...prev, 
+                driversStatus: 'updating',
+                downloadStatus: { file: extra, progress: 0, active: true } 
+            }));
+            
+            // Progress simulation
+            let progress = 0;
+            const interval = setInterval(() => {
+                progress += 10;
+                setDesktopState(prev => ({ 
+                    ...prev, 
+                    downloadStatus: prev.downloadStatus ? { ...prev.downloadStatus, progress } : undefined 
+                }));
+                
+                if (progress >= 100) {
+                    clearInterval(interval);
+                    setTimeout(() => {
+                        setDesktopState(prev => ({ 
+                            ...prev, 
+                            driversStatus: 'optimal',
+                            downloadStatus: undefined 
+                        }));
+                    }, 1000);
+                }
+            }, 500);
+        }
+        return;
+    }
+
+    if (id === 'wifi') {
+        if (action === 'scan') {
+            setDesktopState(prev => ({ ...prev, wifiStatus: 'scanning' }));
+            setTimeout(() => setDesktopState(prev => ({ ...prev, wifiStatus: 'connected', wifiNetwork: 'MommyLink_5G_Ultra' })), 2000);
+        } else if (action === 'status') {
+            // No-op, just lets AI know
+        }
+        return;
+    }
+
+    if (id === 'drivers') {
+        if (action === 'update') {
+            setDesktopState(prev => ({ ...prev, driversStatus: 'updating' }));
+            setTimeout(() => setDesktopState(prev => ({ ...prev, driversStatus: 'optimal' })), 4000);
+        }
+        return;
+    }
+
+    if (id === 'tasks') {
+        if (action === 'add' && extra) {
+            setTasks(prev => [...prev, { id: Date.now().toString(), text: extra, completed: false }]);
+        } else if (action === 'complete' && extra) {
+            setTasks(prev => prev.map(t => t.text.includes(extra) ? { ...t, completed: true } : t));
+        }
+        return;
+    }
+
+    if (id === 'mood') {
+        setMood(action as Mood);
         return;
     }
 
@@ -88,6 +186,11 @@ const App: React.FC = () => {
   const handleLogin = (u: { name: string; email: string }) => {
     setUser({ ...u });
     localStorage.setItem('mommy_user', JSON.stringify(u));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('mommy_user');
   };
 
   const handleConnectWatch = () => {
@@ -129,14 +232,24 @@ const App: React.FC = () => {
     };
     checkKey();
 
-    // Mock variable system stats
+    // Mock variable system stats and processes
     const sysInterval = setInterval(() => {
-        setDesktopState(prev => ({
-            ...prev,
-            cpuUsage: Math.max(5, Math.min(100, prev.cpuUsage + (Math.random() - 0.5) * 5)),
-            ramUsage: Math.max(10, Math.min(90, prev.ramUsage + (Math.random() - 0.5) * 2))
-        }));
-    }, 5000);
+        setDesktopState(prev => {
+            const baseCpu = prev.performanceMode === 'high_performance' ? 40 : prev.performanceMode === 'power_saver' ? 5 : 15;
+            // Update processes
+            const updatedProcesses = prev.processes.map(p => ({
+                ...p,
+                cpu: Math.max(0.1, Math.min(99, p.cpu + (Math.random() - 0.5) * 2))
+            }));
+
+            return {
+                ...prev,
+                cpuUsage: Math.max(5, Math.min(100, baseCpu + (Math.random() * 10))),
+                ramUsage: Math.max(10, Math.min(90, prev.ramUsage + (Math.random() - 0.5) * 2)),
+                processes: updatedProcesses
+            };
+        });
+    }, 2000);
 
     return () => {
         if (healthIntervalRef.current) clearInterval(healthIntervalRef.current);
@@ -161,7 +274,7 @@ const App: React.FC = () => {
   if (apiKeyVerified === null) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex items-center justify-center relative overflow-hidden">
-         <MatrixBackground />
+         <MatrixBackground mood={mood} />
          <Loader2 className="w-10 h-10 text-pink-500 animate-spin z-10" />
       </div>
     );
@@ -171,7 +284,7 @@ const App: React.FC = () => {
   if (apiKeyVerified === false) {
     return (
       <div className="min-h-screen bg-[#0f172a] flex flex-col items-center justify-center p-6 relative overflow-hidden">
-        <MatrixBackground />
+        <MatrixBackground mood={mood} />
         <div className="relative z-10 w-full flex flex-col items-center animate-in fade-in zoom-in duration-500">
           <Header />
           <div className="mt-8 w-full max-w-md bg-slate-900/60 p-8 rounded-3xl border border-slate-700/50 backdrop-blur-xl shadow-2xl flex flex-col items-center text-center ring-1 ring-white/5">
@@ -200,8 +313,13 @@ const App: React.FC = () => {
 
   // 4. Main Interface
   return (
-    <div className="min-h-screen bg-[#0f172a] flex flex-col items-center relative overflow-hidden font-sans selection:bg-pink-500/30">
-      <MatrixBackground />
+    <div className={`min-h-screen bg-[#0f172a] flex flex-col items-center relative overflow-hidden font-sans selection:bg-pink-500/30 transition-colors duration-1000 ${
+        mood === 'happy' ? 'shadow-[inset_0_0_100px_rgba(236,72,153,0.1)]' : 
+        mood === 'concerned' ? 'shadow-[inset_0_0_100px_rgba(251,191,36,0.1)]' : 
+        mood === 'focused' ? 'shadow-[inset_0_0_100px_rgba(56,189,248,0.1)]' : ''
+    }`}>
+      <MatrixBackground mood={mood} />
+      <SystemHUD desktopState={desktopState} />
       
       <div className="relative z-10 w-full flex flex-col items-center flex-1">
         <Header />
@@ -251,6 +369,7 @@ const App: React.FC = () => {
                 healthMetrics={healthMetrics}
                 onConnectWatch={handleConnectWatch}
                 onBluetoothAdd={handleAddBluetoothDevice}
+                mood={mood}
               />
             ) : (
               <ChatInterface 
@@ -262,13 +381,20 @@ const App: React.FC = () => {
           </div>
         </main>
         
-        <div className="pb-2 text-center opacity-40 hover:opacity-100 transition-opacity">
+        <div className="pb-2 text-center opacity-40 hover:opacity-100 transition-opacity flex flex-col items-center gap-1">
           <p className="text-[10px] text-slate-400 uppercase tracking-widest font-semibold flex items-center justify-center gap-2">
              <span className="w-1.5 h-1.5 rounded-full bg-green-500"></span>
              User: {user.name} 
              <span className="text-slate-600">|</span>
              Secure Channel
           </p>
+          <button 
+            onClick={handleLogout} 
+            className="flex items-center gap-1 text-[9px] text-red-400 hover:text-red-300 transition-colors font-bold uppercase tracking-wider py-1 px-2 hover:bg-red-500/10 rounded-md"
+          >
+            <LogOut className="w-3 h-3" />
+            <span>Logout System</span>
+          </button>
         </div>
       </div>
     </div>

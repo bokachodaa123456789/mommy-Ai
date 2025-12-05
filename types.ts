@@ -22,6 +22,24 @@ export interface Attachment {
   mimeType: string;
   data: string; // base64
   url?: string; // for preview
+  metadata?: {
+    duration?: number;
+    width?: number;
+    height?: number;
+  };
+}
+
+export interface GroundingChunk {
+    web?: {
+        uri: string;
+        title: string;
+    };
+}
+
+export interface GroundingMetadata {
+    groundingChunks: GroundingChunk[];
+    groundingSupports?: any[];
+    webSearchQueries?: string[];
 }
 
 export interface Message {
@@ -33,6 +51,7 @@ export interface Message {
   attachments?: Attachment[];
   videoUrl?: string; // For Veo generated videos
   isGeneratingVideo?: boolean;
+  groundingMetadata?: GroundingMetadata;
 }
 
 export interface SmartDevice {
@@ -44,12 +63,28 @@ export interface SmartDevice {
   battery?: number;
 }
 
+export interface AppProcess {
+  id: string;
+  name: string;
+  cpu: number;
+  priority: 'low' | 'normal' | 'high';
+}
+
 export interface DesktopState {
   isFocusMode: boolean;
   cpuUsage: number;
   ramUsage: number;
   openApps: string[];
   performanceMode: 'balanced' | 'high_performance' | 'power_saver';
+  wifiStatus: 'connected' | 'disconnected' | 'scanning';
+  wifiNetwork?: string;
+  driversStatus: 'optimal' | 'updating' | 'outdated';
+  downloadStatus?: {
+    file: string;
+    progress: number;
+    active: boolean;
+  };
+  processes: AppProcess[];
 }
 
 export interface DeviceAction {
@@ -73,3 +108,13 @@ export interface HealthMetrics {
   stressLevel: 'relaxed' | 'normal' | 'high';
   lastSync: number;
 }
+
+export type Mood = 'neutral' | 'happy' | 'concerned' | 'focused' | 'excited';
+
+export interface Task {
+  id: string;
+  text: string;
+  completed: boolean;
+}
+
+export type ModelMode = 'pro' | 'search' | 'fast';

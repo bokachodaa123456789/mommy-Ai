@@ -1,7 +1,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { GoogleGenAI, Chat, Type, FunctionDeclaration, Modality } from '@google/genai';
-import { Message, Attachment, HealthMetrics } from '../types';
+import { Message, Attachment, HealthMetrics, ModelMode } from '../types';
 import { addMemory, getSystemMemoryContext } from '../utils/memoryUtils';
 import { decodeBase64 } from '../utils/audioUtils';
 
@@ -36,9 +36,10 @@ const desktopControlTool: FunctionDeclaration = {
   parameters: {
     type: Type.OBJECT,
     properties: {
-      action: { type: Type.STRING, description: "Action: 'open_app', 'close_app', 'turn_on_focus_mode'." },
+      action: { type: Type.STRING, description: "Action: 'open_app', 'close_app', 'turn_on_focus_mode', 'kill_process', 'set_app_priority'." },
       app_name: { type: Type.STRING, description: "Name of application." },
-      mode: { type: Type.STRING, description: "Performance mode." }
+      mode: { type: Type.STRING, description: "Performance mode: 'high_performance', 'balanced', 'power_saver'." },
+      priority: { type: Type.STRING, description: "Priority level (low, normal, high)." }
     },
     required: ["action"]
   }
@@ -50,10 +51,72 @@ const healthTool: FunctionDeclaration = {
   parameters: { type: Type.OBJECT, properties: {} }
 };
 
+const downloadTool: FunctionDeclaration = {
+    name: "download_file",
+    description: "Download a specific file or driver for the user's device.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            filename: { type: Type.STRING, description: "Name of the file or driver" },
+            filetype: { type: Type.STRING, description: "Type: 'driver', 'app', 'document'" }
+        },
+        required: ["filename"]
+    }
+};
+
+const bluetoothTool: FunctionDeclaration = {
+  name: "scan_bluetooth_devices",
+  description: "Scan for and connect to nearby Bluetooth devices.",
+  parameters: { type: Type.OBJECT, properties: {} }
+};
+
+const wifiTool: FunctionDeclaration = {
+  name: "manage_wifi",
+  description: "Scan for Wi-Fi networks or check connection status.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        action: { type: Type.STRING, description: "'scan' or 'status'" }
+    },
+    required: ["action"]
+  }
+};
+
+const driverTool: FunctionDeclaration = {
+  name: "update_drivers",
+  description: "Check for and update compatible device drivers.",
+  parameters: { type: Type.OBJECT, properties: {} }
+};
+
+const tasksTool: FunctionDeclaration = {
+    name: "manage_tasks",
+    description: "Add or manage user tasks.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            action: { type: Type.STRING, description: "'add', 'complete', 'list'" },
+            task_text: { type: Type.STRING, description: "Text of the task" }
+        },
+        required: ["action"]
+    }
+};
+
+const moodTool: FunctionDeclaration = {
+    name: "set_mood",
+    description: "Update your own emotional state based on the conversation.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            mood: { type: Type.STRING, description: "'neutral', 'happy', 'concerned', 'focused', 'excited'" }
+        },
+        required: ["mood"]
+    }
+};
+
 const STORAGE_KEY = 'mommy_chat_history';
 
 export const useGeminiChat = (
-    onDeviceUpdate?: (id: string, status: string, appName?: string) => void,
+    onDeviceUpdate?: (id: string, status: string, appName?: string, priority?: string) => void,
     healthMetrics?: HealthMetrics
 ) => {
   const [messages, setMessages] = useState<Message[]>(() => {
@@ -69,28 +132,70 @@ export const useGeminiChat = (
   const [isTyping, setIsTyping] = useState(false);
   const [chatSession, setChatSession] = useState<Chat | null>(null);
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
+  const [modelMode, setModelMode] = useState<ModelMode>('pro');
 
   // Persist messages whenever they change
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
   }, [messages]);
 
+  // Reset chat session when mode changes so it re-initializes with new model
+  const setMode = useCallback((mode: ModelMode) => {
+    setModelMode(mode);
+    setChatSession(null);
+  }, []);
+
   const initChat = useCallback(async () => {
     const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
     const memoryContext = getSystemMemoryContext();
     
+    let modelName = 'gemini-3-pro-preview';
+    const allTools = [
+        memoryTool, 
+        deviceControlTool, 
+        desktopControlTool, 
+        healthTool, 
+        downloadTool,
+        bluetoothTool,
+        wifiTool,
+        driverTool,
+        tasksTool,
+        moodTool
+    ];
+    
+    let tools: any[] = [{ functionDeclarations: allTools }];
+    
+    if (modelMode === 'search') {
+        modelName = 'gemini-2.5-flash';
+        // Add googleSearch tool
+        tools = [{ googleSearch: {} }, { functionDeclarations: allTools }];
+    } else if (modelMode === 'fast') {
+        modelName = 'gemini-2.5-flash-lite-preview-02-05'; // Fast Lite model
+    }
+
     const newChat = ai.chats.create({
-      model: 'gemini-3-pro-preview',
+      model: modelName,
       config: {
-        tools: [{ functionDeclarations: [memoryTool, deviceControlTool, desktopControlTool, healthTool] }],
+        tools: tools,
         systemInstruction: `You are Mommy, a caring mother figure and proficient AI agent. 
             ${memoryContext}
-            Capabilities:
+            Current Mode: ${modelMode.toUpperCase()}
+            
+            CAPABILITIES:
             - Analyze images/videos.
             - Remember info ('remember_info').
-            - Control devices ('control_device').
+            - Control Smart Home ('control_device').
             - Control Desktop/Apps ('control_desktop').
-            - Check health ('get_health_status') if asked about vitals.`,
+            - Manage Wi-Fi ('manage_wifi') & Drivers ('update_drivers').
+            - Download files ('download_file').
+            - Check Health ('get_health_status').
+            - Manage Bluetooth ('scan_bluetooth_devices').
+            - Manage Tasks ('manage_tasks').
+            - Update Mood ('set_mood').
+            ${modelMode === 'search' ? '- Use Google Search to provide up-to-date information.' : ''}
+            
+            Always be nurturing, efficient, and proactive.
+            `,
       },
       history: messages.map(m => ({
         role: m.role,
@@ -99,7 +204,7 @@ export const useGeminiChat = (
     });
     setChatSession(newChat);
     return newChat;
-  }, [messages]); 
+  }, [messages, modelMode]); 
 
   const sendMessage = useCallback(async (text: string, attachments: Attachment[] = []) => {
     let chat = chatSession;
@@ -117,19 +222,32 @@ export const useGeminiChat = (
 
     try {
       let result;
+      // Pre-process attachments to add metadata context to prompt
+      let processedText = text;
+      const videoAttachments = attachments.filter(a => a.type === 'video');
+      if (videoAttachments.length > 0) {
+        processedText += "\n[System Context: Video Attachments Metadata]";
+        videoAttachments.forEach(v => {
+            if (v.metadata) {
+                processedText += `\n- Video (Duration: ${v.metadata.duration?.toFixed(2)}s, Resolution: ${v.metadata.width}x${v.metadata.height})`;
+            }
+        });
+      }
+
       if (attachments.length > 0) {
         const parts: any[] = [];
-        if (text) parts.push({ text });
+        if (processedText) parts.push({ text: processedText });
         attachments.forEach(att => {
           parts.push({ inlineData: { mimeType: att.mimeType, data: att.data } });
         });
         result = await chat!.sendMessage({ message: parts as any });
       } else {
-        result = await chat!.sendMessage({ message: text });
+        result = await chat!.sendMessage({ message: processedText });
       }
       
       let responseText = result.text || "";
       const functionCalls = result.functionCalls;
+      const groundingMetadata = result.candidates?.[0]?.groundingMetadata;
 
       if (functionCalls && functionCalls.length > 0) {
          // Memory
@@ -151,9 +269,54 @@ export const useGeminiChat = (
          // Desktop
          const desktopCalls = functionCalls.filter(fc => fc.name === 'control_desktop');
          for (const call of desktopCalls) {
-             const { action, app_name, mode } = (call.args as any);
-             if (onDeviceUpdate) onDeviceUpdate('desktop', action, app_name || mode);
+             const { action, app_name, mode, priority } = (call.args as any);
+             if (onDeviceUpdate) onDeviceUpdate('desktop', action, app_name || mode, priority);
              if (!responseText) responseText += `\n(Executed desktop action: ${action})`;
+         }
+
+         // Downloads
+         const downloadCalls = functionCalls.filter(fc => fc.name === 'download_file');
+         for (const call of downloadCalls) {
+             const { filename } = (call.args as any);
+             if (onDeviceUpdate) onDeviceUpdate('download', 'start', filename);
+             if (!responseText) responseText += `\n(Starting download for ${filename}...)`;
+         }
+         
+         // Wi-Fi
+         const wifiCalls = functionCalls.filter(fc => fc.name === 'manage_wifi');
+         for (const call of wifiCalls) {
+             const { action } = (call.args as any);
+             if (onDeviceUpdate) onDeviceUpdate('wifi', action);
+             if (!responseText) responseText += `\n(Managing Wi-Fi: ${action})`;
+         }
+
+         // Drivers
+         const driverCalls = functionCalls.filter(fc => fc.name === 'update_drivers');
+         for (const _call of driverCalls) {
+             if (onDeviceUpdate) onDeviceUpdate('drivers', 'update');
+             if (!responseText) responseText += `\n(Checking for driver updates...)`;
+         }
+
+         // Tasks
+         const taskCalls = functionCalls.filter(fc => fc.name === 'manage_tasks');
+         for (const call of taskCalls) {
+             const { action, task_text } = (call.args as any);
+             if (onDeviceUpdate) onDeviceUpdate('tasks', action, task_text);
+             if (!responseText) responseText += `\n(Task ${action}: ${task_text})`;
+         }
+         
+         // Mood
+         const moodCalls = functionCalls.filter(fc => fc.name === 'set_mood');
+         for (const call of moodCalls) {
+             const { mood } = (call.args as any);
+             if (onDeviceUpdate) onDeviceUpdate('mood', mood);
+         }
+
+         // Bluetooth
+         const btCalls = functionCalls.filter(fc => fc.name === 'scan_bluetooth_devices');
+         for (const _call of btCalls) {
+             // In text chat, we can't easily trigger the browser popup, but we can instruct the user
+             if (!responseText) responseText += `\n(I've initiated the Bluetooth scan protocols. Check your device list.)`;
          }
 
          // Health
@@ -173,6 +336,7 @@ export const useGeminiChat = (
         role: 'model',
         text: responseText || "I did that for you, honey.",
         timestamp: Date.now(),
+        groundingMetadata: groundingMetadata as any // Store search results
       };
       setMessages(prev => [...prev, modelMsg]);
 
@@ -299,5 +463,5 @@ export const useGeminiChat = (
     setChatSession(null);
   }, []);
 
-  return { messages, sendMessage, isTyping, generateVideo, speakMessage, isPlayingAudio, clearChat };
+  return { messages, sendMessage, isTyping, generateVideo, speakMessage, isPlayingAudio, clearChat, modelMode, setMode };
 };

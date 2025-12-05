@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { SmartDevice, DesktopState } from '../types';
-import { Lightbulb, Thermometer, Lock, Speaker, Smartphone, Cpu, Bluetooth, Tv, Monitor, Zap, Command, Layers } from 'lucide-react';
+import { Lightbulb, Thermometer, Lock, Speaker, Smartphone, Cpu, Bluetooth, Tv, Monitor, Zap, Command, Layers, Wifi, HardDrive, Activity, Download } from 'lucide-react';
 
 interface SmartControlPanelProps {
   devices: SmartDevice[];
@@ -95,41 +95,94 @@ const SmartControlPanel: React.FC<SmartControlPanelProps> = ({ devices, desktopS
              {/* Performance Card */}
              <div className="bg-slate-900/40 border border-white/5 rounded-xl p-3 flex items-center justify-between">
                  <div className="flex items-center space-x-3">
-                     <Zap className="w-5 h-5 text-yellow-400" />
+                     <Zap className={`w-5 h-5 ${
+                         desktopState?.performanceMode === 'high_performance' ? 'text-red-400' : 
+                         desktopState?.performanceMode === 'power_saver' ? 'text-green-400' : 'text-yellow-400'
+                     }`} />
                      <div className="flex flex-col">
                          <span className="text-xs font-semibold text-slate-200">System Performance</span>
                          <span className="text-[9px] text-slate-500 uppercase">{desktopState?.performanceMode.replace('_', ' ') || 'Normal'}</span>
                      </div>
                  </div>
                  <div className="flex space-x-2 text-[10px] font-mono text-slate-400">
-                     <span>CPU {desktopState?.cpuUsage || 12}%</span>
-                     <span>RAM {desktopState?.ramUsage || 45}%</span>
+                     <span>CPU {desktopState?.cpuUsage ? Math.round(desktopState.cpuUsage) : 0}%</span>
+                     <span>RAM {desktopState?.ramUsage ? Math.round(desktopState.ramUsage) : 0}%</span>
                  </div>
              </div>
 
-             {/* Focus Mode Card */}
-             <div className={`border rounded-xl p-3 flex items-center justify-between transition-colors ${desktopState?.isFocusMode ? 'bg-purple-900/20 border-purple-500/30' : 'bg-slate-900/40 border-white/5'}`}>
-                 <div className="flex items-center space-x-3">
-                     <Command className={`w-5 h-5 ${desktopState?.isFocusMode ? 'text-purple-400' : 'text-slate-500'}`} />
-                     <div className="flex flex-col">
-                         <span className="text-xs font-semibold text-slate-200">Deep Focus Mode</span>
-                         <span className="text-[9px] text-slate-500 uppercase">{desktopState?.isFocusMode ? 'Active' : 'Disabled'}</span>
+             {/* Focus & Wi-Fi */}
+             <div className="grid grid-cols-2 gap-3">
+                 {/* Focus Mode */}
+                 <div className={`border rounded-xl p-3 flex items-center justify-between transition-colors ${desktopState?.isFocusMode ? 'bg-purple-900/20 border-purple-500/30' : 'bg-slate-900/40 border-white/5'}`}>
+                     <div className="flex items-center space-x-2">
+                         <Command className={`w-4 h-4 ${desktopState?.isFocusMode ? 'text-purple-400' : 'text-slate-500'}`} />
+                         <span className="text-[10px] font-bold text-slate-300 uppercase">Focus</span>
                      </div>
+                     <div className={`w-1.5 h-1.5 rounded-full ${desktopState?.isFocusMode ? 'bg-purple-500 animate-pulse' : 'bg-slate-700'}`} />
                  </div>
-                 <div className={`w-2 h-2 rounded-full ${desktopState?.isFocusMode ? 'bg-purple-500 animate-pulse' : 'bg-slate-700'}`} />
-             </div>
 
-             {/* Active Apps */}
-             <div className="grid grid-cols-2 gap-2">
-                 {desktopState?.openApps.map((app, i) => (
-                     <div key={i} className="bg-slate-800/40 border border-white/5 rounded-lg p-2 flex items-center space-x-2">
-                         <Layers className="w-3 h-3 text-blue-400" />
-                         <span className="text-xs text-slate-300">{app}</span>
+                 {/* Wi-Fi */}
+                 <div className={`border rounded-xl p-3 flex items-center justify-between transition-colors ${desktopState?.wifiStatus === 'connected' ? 'bg-blue-900/20 border-blue-500/30' : 'bg-slate-900/40 border-white/5'}`}>
+                     <div className="flex items-center space-x-2">
+                         <Wifi className={`w-4 h-4 ${desktopState?.wifiStatus === 'connected' ? 'text-blue-400' : 'text-slate-500'}`} />
+                         <div className="flex flex-col">
+                             <span className="text-[10px] font-bold text-slate-300 uppercase">Wi-Fi</span>
+                             <span className="text-[9px] text-slate-400 max-w-[80px] truncate">
+                                {desktopState?.wifiStatus === 'connected' ? (desktopState?.wifiNetwork || 'Connected') : 
+                                 desktopState?.wifiStatus === 'scanning' ? 'Scanning...' : 'Off'}
+                             </span>
+                         </div>
                      </div>
-                 ))}
-                 {(!desktopState?.openApps.length) && (
-                     <span className="text-[10px] text-slate-500 italic p-2">No active applications tracked.</span>
+                     {desktopState?.wifiStatus === 'connected' && <div className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse" />}
+                 </div>
+             </div>
+             
+             {/* Drivers & Downloads */}
+             <div className="bg-slate-900/40 border border-white/5 rounded-xl p-3 flex items-center justify-between relative overflow-hidden">
+                 {desktopState?.downloadStatus?.active && (
+                    <div className="absolute inset-0 bg-emerald-500/10 z-0">
+                        <div className="h-full bg-emerald-500/20 transition-all duration-300" style={{ width: `${desktopState.downloadStatus.progress}%` }} />
+                    </div>
                  )}
+                 <div className="flex items-center space-x-3 relative z-10">
+                     <HardDrive className={`w-5 h-5 ${desktopState?.driversStatus === 'optimal' ? 'text-emerald-400' : desktopState?.driversStatus === 'updating' ? 'text-yellow-400' : 'text-red-400'}`} />
+                     <div className="flex flex-col">
+                         <span className="text-xs font-semibold text-slate-200">
+                             {desktopState?.downloadStatus?.active ? `Downloading: ${desktopState.downloadStatus.file}` : 'Device Drivers'}
+                         </span>
+                         <span className="text-[9px] text-slate-500 uppercase">
+                             {desktopState?.downloadStatus?.active 
+                                ? `${desktopState.downloadStatus.progress}% Complete` 
+                                : (desktopState?.driversStatus === 'updating' ? 'Checking Updates...' : desktopState?.driversStatus === 'optimal' ? 'Up to date' : 'Update Required')}
+                         </span>
+                     </div>
+                 </div>
+                 {(desktopState?.driversStatus === 'updating' || desktopState?.downloadStatus?.active) && (
+                     <Download className="w-4 h-4 text-emerald-400 animate-bounce relative z-10" />
+                 )}
+             </div>
+
+             {/* Process Monitor */}
+             <div className="bg-slate-900/40 border border-white/5 rounded-xl p-3">
+                 <div className="flex items-center justify-between mb-2">
+                    <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center gap-1">
+                        <Activity className="w-3 h-3" /> Process Monitor
+                    </h4>
+                 </div>
+                 <div className="space-y-1.5 max-h-[120px] overflow-y-auto scrollbar-thin scrollbar-thumb-slate-700">
+                    {desktopState?.processes.map((proc) => (
+                        <div key={proc.id} className="flex items-center justify-between bg-slate-800/40 p-1.5 rounded-lg border border-white/5">
+                            <div className="flex items-center space-x-2">
+                                <div className={`w-1 h-1 rounded-full ${proc.priority === 'high' ? 'bg-red-400' : proc.priority === 'low' ? 'bg-green-400' : 'bg-blue-400'}`} />
+                                <span className="text-xs text-slate-300 font-mono truncate max-w-[80px]">{proc.name}</span>
+                            </div>
+                            <div className="flex items-center space-x-2">
+                                <span className="text-[9px] text-slate-500 uppercase">{proc.priority}</span>
+                                <span className="text-[10px] text-slate-400 font-mono w-8 text-right">{proc.cpu.toFixed(1)}%</span>
+                            </div>
+                        </div>
+                    ))}
+                 </div>
              </div>
         </div>
       )}

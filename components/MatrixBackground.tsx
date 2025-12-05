@@ -1,7 +1,11 @@
-
 import React, { useEffect, useRef } from 'react';
+import { Mood } from '../types';
 
-const MatrixBackground: React.FC = () => {
+interface MatrixBackgroundProps {
+  mood?: Mood;
+}
+
+const MatrixBackground: React.FC<MatrixBackgroundProps> = ({ mood }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -28,13 +32,21 @@ const MatrixBackground: React.FC = () => {
       drops[i] = 1;
     }
 
+    // Determine colors based on mood
+    let primaryColor = '#ec4899'; // Pink-500 (Default/Happy)
+    
+    if (mood === 'concerned') {
+        primaryColor = '#f59e0b'; // Amber-500
+    } else if (mood === 'focused') {
+        primaryColor = '#3b82f6'; // Blue-500
+    }
+
     const draw = () => {
       // Very translucent black to create trail effect
       ctx.fillStyle = 'rgba(15, 23, 42, 0.08)';
       ctx.fillRect(0, 0, width, height);
 
-      // Pink/Purple Matrix Color
-      ctx.fillStyle = '#f472b6'; // Pink-400
+      // Set Font
       ctx.font = `${fontSize}px monospace`;
 
       for (let i = 0; i < drops.length; i++) {
@@ -44,14 +56,11 @@ const MatrixBackground: React.FC = () => {
         if (Math.random() > 0.95) {
             ctx.fillStyle = '#ffffff'; 
         } else {
-            ctx.fillStyle = '#ec4899'; // Pink-500
+            ctx.fillStyle = primaryColor;
         }
         
         ctx.fillText(text, i * fontSize, drops[i] * fontSize);
         
-        // Reset fill style
-        ctx.fillStyle = '#ec4899';
-
         // sending the drop back to the top randomly after it has crossed the screen
         if (drops[i] * fontSize > height && Math.random() > 0.985) {
           drops[i] = 0;
@@ -77,7 +86,7 @@ const MatrixBackground: React.FC = () => {
       clearInterval(interval);
       window.removeEventListener('resize', handleResize);
     };
-  }, []);
+  }, [mood]);
 
   return (
     <canvas

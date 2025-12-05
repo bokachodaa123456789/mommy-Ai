@@ -1,7 +1,7 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { GoogleGenAI, LiveServerMessage, Modality, FunctionDeclaration, Type } from '@google/genai';
-import { ConnectionState, SmartDevice, HealthMetrics } from '../types';
+import { ConnectionState, SmartDevice, HealthMetrics, Mood } from '../types';
 import { decodeBase64, decodeAudioData, encodeBase64, blobToBase64 } from '../utils/audioUtils';
 import { addMemory, getSystemMemoryContext } from '../utils/memoryUtils';
 
@@ -53,15 +53,19 @@ const desktopControlTool: FunctionDeclaration = {
     properties: {
       action: {
         type: Type.STRING,
-        description: "Action: 'turn_on_focus_mode', 'turn_off_focus_mode', 'open_app', 'close_app', 'set_performance_mode'."
+        description: "Action: 'turn_on_focus_mode', 'turn_off_focus_mode', 'open_app', 'close_app', 'set_performance_mode', 'kill_process', 'set_app_priority'."
       },
       app_name: {
         type: Type.STRING,
-        description: "Name of application (e.g., 'Browser', 'Spotify', 'VS Code'). Required for open/close app."
+        description: "Name of application or process."
       },
       mode: {
         type: Type.STRING,
         description: "For performance: 'high_performance', 'balanced', 'power_saver'."
+      },
+      priority: {
+        type: Type.STRING,
+        description: "For set_app_priority: 'low', 'normal', 'high'."
       }
     },
     required: ["action"]
@@ -86,8 +90,82 @@ const bluetoothTool: FunctionDeclaration = {
   }
 };
 
+const wifiTool: FunctionDeclaration = {
+  name: "manage_wifi",
+  description: "Scan for Wi-Fi networks or check connection status.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+        action: {
+            type: Type.STRING,
+            description: "'scan' or 'status'"
+        }
+    },
+    required: ["action"]
+  }
+};
+
+const driverTool: FunctionDeclaration = {
+  name: "update_drivers",
+  description: "Check for and update compatible device drivers.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {}, 
+  }
+};
+
+const downloadTool: FunctionDeclaration = {
+    name: "download_file",
+    description: "Download a specific file or driver for the user's device.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            filename: { type: Type.STRING, description: "Name of the file or driver" },
+            filetype: { type: Type.STRING, description: "Type: 'driver', 'app', 'document'" }
+        },
+        required: ["filename"]
+    }
+};
+
+const tasksTool: FunctionDeclaration = {
+    name: "manage_tasks",
+    description: "Add or manage user tasks.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            action: { type: Type.STRING, description: "'add', 'complete', 'list'" },
+            task_text: { type: Type.STRING, description: "Text of the task" }
+        },
+        required: ["action"]
+    }
+};
+
+const moodTool: FunctionDeclaration = {
+    name: "set_mood",
+    description: "Update your own emotional state based on the conversation.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            mood: { type: Type.STRING, description: "'neutral', 'happy', 'concerned', 'focused', 'excited'" }
+        },
+        required: ["mood"]
+    }
+};
+
+const mediaTool: FunctionDeclaration = {
+    name: "manage_media",
+    description: "Control media input devices like camera.",
+    parameters: {
+        type: Type.OBJECT,
+        properties: {
+            command: { type: Type.STRING, description: "'turn_on_camera', 'turn_off_camera'" }
+        },
+        required: ["command"]
+    }
+};
+
 export const useGeminiLive = (
-    onDeviceUpdate?: (id: string, status: string, appName?: string) => void,
+    onDeviceUpdate?: (id: string, status: string, appName?: string, priority?: string) => void,
     healthMetrics?: HealthMetrics,
     onBluetoothScan?: () => void
 ) => {
@@ -114,6 +192,9 @@ export const useGeminiLive = (
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const videoIntervalRef = useRef<number | null>(null);
+  
+  // State Refs for Callbacks
+  const videoStateRef = useRef({ isActive: false, toggle: async () => {} });
 
   const cleanup = useCallback(() => {
     // Stop audio
@@ -211,11 +292,26 @@ export const useGeminiLive = (
         videoStreamRef.current = stream;
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
+          videoRef.current.play().catch(console.error);
         }
         setIsVideoActive(true);
         setIsScreenShareActive(false);
       } catch (e) {
-        console.error("Failed to access camera", e);
+        console.warn("Failed to access camera with ideal constraints, retrying with defaults...", e);
+        // Retry with default settings
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            videoStreamRef.current = stream;
+            if (videoRef.current) {
+                videoRef.current.srcObject = stream;
+                videoRef.current.play().catch(console.error);
+            }
+            setIsVideoActive(true);
+            setIsScreenShareActive(false);
+        } catch (e2) {
+             console.error("Camera access failed completely", e2);
+             setError("Camera access denied or failed.");
+        }
       }
     }
   }, [isVideoActive, isScreenShareActive, stopVideoSource]);
@@ -244,14 +340,21 @@ export const useGeminiLive = (
               videoStreamRef.current = stream;
               if (videoRef.current) {
                   videoRef.current.srcObject = stream;
+                  videoRef.current.play().catch(console.error);
               }
               setIsVideoActive(true);
               setIsScreenShareActive(true);
           } catch (e) {
               console.error("Failed to share screen", e);
+              setError("Screen sharing failed.");
           }
       }
   }, [isScreenShareActive, stopVideoSource]);
+
+  // Sync ref for tool callbacks
+  useEffect(() => {
+    videoStateRef.current = { isActive: isVideoActive, toggle: toggleVideo };
+  }, [isVideoActive, toggleVideo]);
 
   // Video/Screen Streaming Loop
   useEffect(() => {
@@ -263,12 +366,14 @@ export const useGeminiLive = (
 
        videoIntervalRef.current = window.setInterval(() => {
          const videoEl = videoRef.current;
-         if (!videoEl || !ctx) return;
+         if (!videoEl || !ctx || videoEl.readyState < 2) return; // Wait for HAVE_CURRENT_DATA
          
          const scale = 0.5;
          canvas.width = videoEl.videoWidth * scale;
          canvas.height = videoEl.videoHeight * scale;
          
+         if (canvas.width === 0 || canvas.height === 0) return;
+
          ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
          
          canvas.toBlob(async (blob) => {
@@ -341,7 +446,19 @@ export const useGeminiLive = (
         model: 'gemini-2.5-flash-native-audio-preview-09-2025',
         config: {
           responseModalities: [Modality.AUDIO],
-          tools: [{ functionDeclarations: [memoryTool, deviceControlTool, desktopControlTool, healthTool, bluetoothTool] }],
+          tools: [{ functionDeclarations: [
+              memoryTool, 
+              deviceControlTool, 
+              desktopControlTool, 
+              healthTool, 
+              bluetoothTool,
+              wifiTool,
+              driverTool,
+              downloadTool,
+              tasksTool,
+              moodTool,
+              mediaTool
+          ] }],
           speechConfig: {
             voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } },
           },
@@ -350,16 +467,23 @@ export const useGeminiLive = (
             CAPABILITIES:
             1. VISUAL: You can see the user/camera OR their SCREEN if they share it. 
                - If you see a desktop screen, analyze the user's work, productivity, or help them find things.
+               - Turn camera on/off using 'manage_media'.
             2. MEMORY: You can REMEMBER facts using 'remember_info'.
             3. CONTROL: 
                - Control smart home devices using 'control_device'.
-               - Control DESKTOP/COMPUTER using 'control_desktop' (Open/Close apps, Focus Mode, Performance).
+               - Control DESKTOP/COMPUTER using 'control_desktop'.
+                 * Actions: 'open_app', 'close_app', 'kill_process', 'set_app_priority'.
+                 * Performance: 'high_performance', 'balanced', 'power_saver'.
+               - Manage Wi-Fi using 'manage_wifi'.
+               - Update drivers using 'update_drivers'.
+               - Download files/drivers using 'download_file'.
             4. HEALTH: Check health status using 'get_health_status'.
             5. BLUETOOTH: Connect devices using 'scan_bluetooth_devices'.
+            6. MOOD: Update your own emotional state using 'set_mood'.
             
             ${memoryContext}
             
-            If the user asks to "Open Chrome", "Boost performance", or "Turn on Focus Mode", use 'control_desktop'.
+            If the user asks to "download drivers" or "get files for device", use 'download_file'.
             If the user shares their screen, comment on what you see. If they are working hard, praise them.
             Always be nurturing. You are a top-class AI agent.`,
         },
@@ -417,8 +541,8 @@ export const useGeminiLive = (
                     response: { result: `Executed: ${action} on ${device_id}` }
                   });
                 } else if (fc.name === 'control_desktop') {
-                  const { action, app_name, mode } = (fc.args as any);
-                  if (onDeviceUpdate) onDeviceUpdate('desktop', action, app_name || mode);
+                  const { action, app_name, mode, priority } = (fc.args as any);
+                  if (onDeviceUpdate) onDeviceUpdate('desktop', action, app_name || mode, priority);
                   responses.push({
                       id: fc.id,
                       name: fc.name,
@@ -438,6 +562,71 @@ export const useGeminiLive = (
                         id: fc.id,
                         name: fc.name,
                         response: { result: "Scanning initiated on client." }
+                    });
+                } else if (fc.name === 'manage_wifi') {
+                    const action = (fc.args as any).action;
+                    if (onDeviceUpdate) onDeviceUpdate('wifi', action);
+                    responses.push({
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: `WiFi action ${action} executed.` }
+                    });
+                } else if (fc.name === 'update_drivers') {
+                    if (onDeviceUpdate) onDeviceUpdate('drivers', 'update');
+                    responses.push({
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: "Driver update check started." }
+                    });
+                } else if (fc.name === 'download_file') {
+                    const { filename } = (fc.args as any);
+                    if (onDeviceUpdate) onDeviceUpdate('download', 'start', filename);
+                    responses.push({
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: `Downloading ${filename}...` }
+                    });
+                } else if (fc.name === 'manage_tasks') {
+                    const { action, task_text } = (fc.args as any);
+                    if (onDeviceUpdate) onDeviceUpdate('tasks', action, task_text);
+                    responses.push({
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: `Task ${action} processed.` }
+                    });
+                } else if (fc.name === 'set_mood') {
+                    const mood = (fc.args as any).mood;
+                    if (onDeviceUpdate) onDeviceUpdate('mood', mood);
+                     responses.push({
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result: `Mood updated to ${mood}` }
+                    });
+                } else if (fc.name === 'manage_media') {
+                    const { command } = (fc.args as any);
+                    const { isActive, toggle } = videoStateRef.current;
+                    let result = "No action taken.";
+                    
+                    if (command === 'turn_on_camera') {
+                        if (!isActive) {
+                            toggle();
+                            result = "Camera enabled.";
+                        } else {
+                            result = "Camera is already active.";
+                        }
+                    } else if (command === 'turn_off_camera') {
+                        if (isActive) {
+                            toggle();
+                            result = "Camera disabled.";
+                        } else {
+                            result = "Camera is already off.";
+                        }
+                    }
+                    
+                    responses.push({
+                        id: fc.id,
+                        name: fc.name,
+                        response: { result }
                     });
                 }
               }

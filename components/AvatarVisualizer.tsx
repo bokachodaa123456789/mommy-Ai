@@ -1,12 +1,13 @@
-
 import React, { useEffect, useState } from 'react';
+import { Mood } from '../types';
 
 interface AvatarVisualizerProps {
   outputVolume: number; // 0 to 1
   isActive: boolean;
+  mood?: Mood;
 }
 
-const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isActive }) => {
+const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isActive, mood = 'neutral' }) => {
   const [blink, setBlink] = useState(false);
   const [lookAngle, setLookAngle] = useState({ x: 0, y: 0 });
 
@@ -30,9 +31,21 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isAct
     return () => clearInterval(moveInterval);
   }, []);
 
-  // Mouth Animation - Quadratic curve control point Y moves based on volume
-  // Smoothed out for natural talking
+  // Mouth Animation
   const mouthOpenAmount = isActive ? Math.min(outputVolume * 50, 25) : 0;
+  
+  // Expression adjustments based on Mood
+  let mouthCurve = 6; // Default smile/neutral
+  let eyeShapeY = -8; // Default open eye top curve control point
+  
+  if (mood === 'happy' || mood === 'excited') {
+      mouthCurve = 10; // Bigger smile
+  } else if (mood === 'concerned') {
+      mouthCurve = 0; // Flat or slight frown
+      eyeShapeY = -4; // Slightly worried/droopy eyes
+  } else if (mood === 'focused') {
+      mouthCurve = 3; // Concentrating
+  }
   
   // Aesthetic Palettes
   const skinColor = "#FFF0E5"; // Fair/Pale skin
@@ -83,7 +96,7 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isAct
                 ) : (
                     <>
                     {/* Sclera */}
-                    <path d="M -14 0 Q 0 -8 14 0 Q 0 8 -14 0" fill="#FFF" />
+                    <path d={`M -14 0 Q 0 ${eyeShapeY} 14 0 Q 0 8 -14 0`} fill="#FFF" />
                     {/* Iris */}
                     <circle cx="0" cy="0" r="5.5" fill={eyeColor} />
                     {/* Highlight */}
@@ -91,6 +104,8 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isAct
                     {/* Eyeliner/Lash line */}
                     <path d="M -15 -1 Q 0 -10 15 -1" fill="none" stroke="#1a1a1a" strokeWidth="2.5" strokeLinecap="round" />
                     <path d="M 15 -1 Q 18 -4 19 -6" fill="none" stroke="#1a1a1a" strokeWidth="1.5" /> {/* Wing */}
+                    {/* Eyebrows for concerned mood */}
+                    {mood === 'concerned' && <path d="M -12 -12 Q 0 -10 12 -14" stroke="#1a1a1a" strokeWidth="2" fill="none" />}
                     </>
                 )}
             </g>
@@ -101,11 +116,13 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isAct
                     <path d="M -14 2 Q 0 6 14 2" stroke="#1a1a1a" strokeWidth="2.5" fill="none" strokeLinecap="round"/>
                 ) : (
                     <>
-                    <path d="M -14 0 Q 0 -8 14 0 Q 0 8 -14 0" fill="#FFF" />
+                    <path d={`M -14 0 Q 0 ${eyeShapeY} 14 0 Q 0 8 -14 0`} fill="#FFF" />
                     <circle cx="0" cy="0" r="5.5" fill={eyeColor} />
                     <circle cx="2" cy="-2" r="2" fill="white" opacity="0.9" />
                     <path d="M -15 -1 Q 0 -10 15 -1" fill="none" stroke="#1a1a1a" strokeWidth="2.5" strokeLinecap="round" />
                     <path d="M 15 -1 Q 18 -4 19 -6" fill="none" stroke="#1a1a1a" strokeWidth="1.5" />
+                     {/* Eyebrows for concerned mood */}
+                     {mood === 'concerned' && <path d="M -12 -14 Q 0 -10 12 -12" stroke="#1a1a1a" strokeWidth="2" fill="none" />}
                     </>
                 )}
             </g>
@@ -118,13 +135,13 @@ const AvatarVisualizer: React.FC<AvatarVisualizerProps> = ({ outputVolume, isAct
         <g transform="translate(100, 145)">
             {/* Lips */}
             <path 
-                d={`M -16 0 Q 0 ${-4 - mouthOpenAmount/5} 16 0 Q 0 ${6 + mouthOpenAmount} -16 0`} 
+                d={`M -16 0 Q 0 ${-4 - mouthOpenAmount/5} 16 0 Q 0 ${mouthCurve + mouthOpenAmount} -16 0`} 
                 fill={lipColor} 
             />
             {/* Inner mouth shadow when open */}
             {mouthOpenAmount > 5 && (
                  <path 
-                    d={`M -10 1 Q 0 ${1 + mouthOpenAmount/1.5} 10 1 Q 0 ${4 + mouthOpenAmount} -10 1`} 
+                    d={`M -10 1 Q 0 ${1 + mouthOpenAmount/1.5} 10 1 Q 0 ${mouthCurve - 2 + mouthOpenAmount} -10 1`} 
                     fill="#803030" 
                 />
             )}

@@ -4,8 +4,8 @@ import AvatarVisualizer from './AvatarVisualizer';
 import SmartControlPanel from './SmartControlPanel';
 import HealthPanel from './HealthPanel';
 import { useGeminiLive } from '../hooks/useGeminiLive';
-import { ConnectionState, SmartDevice, HealthMetrics, DesktopState } from '../types';
-import { Mic, MicOff, Loader2, AlertCircle, Square, Camera, Eye, Monitor } from 'lucide-react';
+import { ConnectionState, SmartDevice, HealthMetrics, DesktopState, Mood } from '../types';
+import { Mic, MicOff, Loader2, AlertCircle, Camera, Eye, Monitor } from 'lucide-react';
 
 interface VoiceModeProps {
   hasPermission: boolean | null;
@@ -15,6 +15,7 @@ interface VoiceModeProps {
   healthMetrics: HealthMetrics;
   onConnectWatch: () => void;
   onBluetoothAdd?: (device: SmartDevice) => void;
+  mood?: Mood;
 }
 
 const VoiceMode: React.FC<VoiceModeProps> = ({ 
@@ -24,13 +25,14 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
   onDeviceUpdate,
   healthMetrics,
   onConnectWatch,
-  onBluetoothAdd
+  onBluetoothAdd,
+  mood = 'neutral'
 }) => {
 
   const handleBluetoothScan = useCallback(async () => {
     try {
         if (!(navigator as any).bluetooth) {
-            console.error("Web Bluetooth is not available in this browser.");
+            alert("Bluetooth is not supported in this browser. Please use Chrome or Edge.");
             return;
         }
         
@@ -50,6 +52,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
         }
     } catch (e) {
         console.error("Bluetooth scan failed", e);
+        // Don't alert on cancellation
     }
   }, [onBluetoothAdd]);
 
@@ -111,18 +114,20 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
                 autoPlay 
                 playsInline 
                 muted 
+                onLoadedMetadata={(e) => e.currentTarget.play()}
                 className={`w-full h-full object-cover ${isScreenShareActive ? '' : 'transform scale-x-[-1]'}`} 
                 />
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60 pointer-events-none" />
                 {/* PiP Avatar */}
                 <div className="absolute bottom-4 right-4 w-24 h-24 bg-slate-900/90 backdrop-blur-md rounded-2xl border border-white/20 shadow-xl overflow-hidden ring-1 ring-black/50">
-                    <AvatarVisualizer outputVolume={volume.output} isActive={isConnected} />
+                    <AvatarVisualizer outputVolume={volume.output} isActive={isConnected} mood={mood} />
                 </div>
             </>
             ) : (
             <AvatarVisualizer 
                 outputVolume={volume.output}
-                isActive={isConnected} 
+                isActive={isConnected}
+                mood={mood} 
             />
             )}
         </div>
@@ -181,7 +186,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
             <>
                <button
                 onClick={toggleVideo}
-                className={`col-span-1 rounded-2xl border flex flex-col items-center justify-center transition-all active:scale-95 ${
+                className={`col-span-1 rounded-2xl border flex flex-col items-center justify-center transition-all active:scale-95 space-y-1 ${
                   isVideoActive && !isScreenShareActive
                   ? 'bg-indigo-500 text-white border-indigo-400 shadow-lg shadow-indigo-500/30' 
                   : 'bg-slate-800/60 border-white/5 text-slate-400 hover:text-white hover:bg-slate-700'
@@ -189,11 +194,12 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
                 title="Toggle Camera"
               >
                 {isVideoActive && !isScreenShareActive ? <Eye className="w-5 h-5" /> : <Camera className="w-5 h-5" />}
+                <span className="text-[9px] font-bold">CAM</span>
               </button>
 
               <button
                 onClick={toggleScreenShare}
-                 className={`col-span-1 rounded-2xl border flex flex-col items-center justify-center transition-all active:scale-95 ${
+                 className={`col-span-1 rounded-2xl border flex flex-col items-center justify-center transition-all active:scale-95 space-y-1 ${
                   isScreenShareActive
                   ? 'bg-blue-500 text-white border-blue-400 shadow-lg shadow-blue-500/30' 
                   : 'bg-slate-800/60 border-white/5 text-slate-400 hover:text-white hover:bg-slate-700'
@@ -201,6 +207,7 @@ const VoiceMode: React.FC<VoiceModeProps> = ({
                 title="Share Screen"
               >
                 <Monitor className="w-5 h-5" />
+                <span className="text-[9px] font-bold">SCREEN</span>
               </button>
             </>
           )}

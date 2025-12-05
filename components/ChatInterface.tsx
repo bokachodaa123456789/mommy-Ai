@@ -1,9 +1,9 @@
 
 import React, { useRef, useEffect, useState } from 'react';
-import { Send, Image as ImageIcon, Film, Loader2, Volume2, X, Paperclip, Sparkles, User, MonitorSmartphone, Clock } from 'lucide-react';
+import { Send, Image as ImageIcon, Film, Loader2, Volume2, X, Paperclip, Sparkles, User, MonitorSmartphone, Clock, Globe, Zap, BrainCircuit, ExternalLink } from 'lucide-react';
 import { useGeminiChat } from '../hooks/useGeminiChat';
-import { fileToBase64, getMimeType } from '../utils/fileUtils';
-import { Attachment, SmartDevice, HealthMetrics } from '../types';
+import { fileToBase64, getMimeType, getVideoMetadata } from '../utils/fileUtils';
+import { Attachment, SmartDevice, HealthMetrics, ModelMode } from '../types';
 import SmartControlPanel from './SmartControlPanel';
 import HealthPanel from './HealthPanel';
 import HistorySidebar from './HistorySidebar';
@@ -15,7 +15,7 @@ interface ChatInterfaceProps {
 }
 
 const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, healthMetrics }) => {
-  const { messages, sendMessage, isTyping, generateVideo, speakMessage, isPlayingAudio, clearChat } = useGeminiChat(onDeviceUpdate, healthMetrics);
+  const { messages, sendMessage, isTyping, generateVideo, speakMessage, isPlayingAudio, clearChat, modelMode, setMode } = useGeminiChat(onDeviceUpdate, healthMetrics);
   const [input, setInput] = useState("");
   const [attachments, setAttachments] = useState<Attachment[]>([]);
   const [isVideoMode, setIsVideoMode] = useState(false);
@@ -52,11 +52,17 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
         const mimeType = getMimeType(file);
         const type = mimeType.startsWith('video/') ? 'video' : 'image';
         
+        let metadata;
+        if (type === 'video') {
+            metadata = await getVideoMetadata(file);
+        }
+
         setAttachments(prev => [...prev, {
           type,
           mimeType,
           data: base64,
-          url: URL.createObjectURL(file)
+          url: URL.createObjectURL(file),
+          metadata
         }]);
       } catch (err) {
         console.error("File processing failed", err);
@@ -76,11 +82,36 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
 
   return (
     <div className="flex flex-col h-full w-full max-w-lg mx-auto relative z-10">
-      {/* Top Bar Actions */}
-      <div className="absolute top-0 right-4 z-20">
+      {/* Top Bar Actions & Mode Selector */}
+      <div className="absolute top-0 left-4 right-4 z-20 flex justify-between items-center pointer-events-none">
+         {/* Mode Switcher - Pointer events enabled */}
+         <div className="pointer-events-auto bg-slate-900/80 backdrop-blur-md border border-white/10 rounded-full p-1 flex space-x-1 shadow-lg">
+            <button 
+                onClick={() => setMode('pro')}
+                className={`p-1.5 px-3 rounded-full flex items-center space-x-1 transition-all text-[10px] font-bold uppercase tracking-wider ${modelMode === 'pro' ? 'bg-gradient-to-r from-pink-600 to-purple-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+            >
+                <BrainCircuit className="w-3 h-3" />
+                <span>Pro</span>
+            </button>
+            <button 
+                onClick={() => setMode('search')}
+                className={`p-1.5 px-3 rounded-full flex items-center space-x-1 transition-all text-[10px] font-bold uppercase tracking-wider ${modelMode === 'search' ? 'bg-blue-600 text-white shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+            >
+                <Globe className="w-3 h-3" />
+                <span>Search</span>
+            </button>
+            <button 
+                onClick={() => setMode('fast')}
+                className={`p-1.5 px-3 rounded-full flex items-center space-x-1 transition-all text-[10px] font-bold uppercase tracking-wider ${modelMode === 'fast' ? 'bg-yellow-500 text-black shadow-md' : 'text-slate-400 hover:text-white hover:bg-white/5'}`}
+            >
+                <Zap className="w-3 h-3" />
+                <span>Fast</span>
+            </button>
+         </div>
+
          <button 
            onClick={() => setShowHistory(true)}
-           className="p-2 rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-pink-300 transition-colors backdrop-blur-md border border-white/5"
+           className="pointer-events-auto p-2 rounded-full bg-slate-800/50 hover:bg-slate-700/50 text-slate-400 hover:text-pink-300 transition-colors backdrop-blur-md border border-white/5"
            title="History"
          >
            <Clock className="w-4 h-4" />
@@ -95,7 +126,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
       />
       
       {/* Messages Area */}
-      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6 scrollbar-thin scrollbar-thumb-slate-700/50 scrollbar-track-transparent pt-8">
+      <div className="flex-1 overflow-y-auto px-4 py-2 space-y-6 scrollbar-thin scrollbar-thumb-slate-700/50 scrollbar-track-transparent pt-14">
         {messages.length === 0 && (
           <div className="text-center mt-8 px-6 animate-in fade-in zoom-in duration-700">
             <div className="relative w-20 h-20 mx-auto mb-6">
@@ -106,7 +137,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
             </div>
             <h3 className="text-xl font-bold text-white mb-2">Mommy AI</h3>
             <p className="text-slate-400 text-sm leading-relaxed mb-8">
-              I'm here for you, sweetie. We can chat, check your health, control the house, or just hang out.
+              I'm here for you, sweetie. I can search the web, analyze your world, or just chat quickly.
             </p>
             
             <div className="grid grid-cols-2 gap-3 opacity-80">
@@ -152,11 +183,18 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
                         {att.type === 'image' ? (
                             <img src={att.url || `data:${att.mimeType};base64,${att.data}`} alt="attachment" className="max-w-full max-h-48 object-cover" />
                         ) : (
-                            <video 
-                            src={att.url || `data:${att.mimeType};base64,${att.data}`} 
-                            controls 
-                            className="max-w-full max-h-64 bg-black" 
-                            />
+                            <div className="relative">
+                                <video 
+                                src={att.url || `data:${att.mimeType};base64,${att.data}`} 
+                                controls 
+                                className="max-w-full max-h-64 bg-black" 
+                                />
+                                {att.metadata && (
+                                    <div className="absolute top-2 left-2 bg-black/60 px-2 py-1 rounded text-[9px] font-mono text-white/80 pointer-events-none">
+                                        {att.metadata.width}x{att.metadata.height} | {att.metadata.duration?.toFixed(1)}s
+                                    </div>
+                                )}
+                            </div>
                         )}
                         </div>
                     ))}
@@ -164,6 +202,30 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
                 )}
 
                 <p className="whitespace-pre-wrap">{msg.text}</p>
+
+                {/* Grounding Sources */}
+                {msg.groundingMetadata?.groundingChunks && msg.groundingMetadata.groundingChunks.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-white/10">
+                        <p className="text-[10px] text-slate-400 font-bold uppercase mb-1.5 flex items-center">
+                            <Globe className="w-3 h-3 mr-1" />
+                            Sources
+                        </p>
+                        <div className="flex flex-wrap gap-2">
+                            {msg.groundingMetadata.groundingChunks.map((chunk, idx) => chunk.web ? (
+                                <a 
+                                    key={idx}
+                                    href={chunk.web.uri}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center space-x-1 bg-slate-700/50 hover:bg-slate-700 hover:text-blue-300 transition-colors rounded-md px-2 py-1 text-[10px] text-slate-300 border border-white/5"
+                                >
+                                    <span className="max-w-[100px] truncate">{chunk.web.title}</span>
+                                    <ExternalLink className="w-2.5 h-2.5 opacity-50" />
+                                </a>
+                            ) : null)}
+                        </div>
+                    </div>
+                )}
 
                 {msg.videoUrl && (
                     <div className="mt-4 rounded-xl overflow-hidden shadow-2xl border border-indigo-500/30 ring-1 ring-indigo-500/20">
@@ -204,9 +266,9 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
         {isTyping && (
           <div className="flex justify-start ml-8">
              <div className="bg-slate-800/60 border border-slate-700/50 p-3 rounded-2xl rounded-bl-none flex space-x-1.5 items-center backdrop-blur-sm">
-              <div className="w-1.5 h-1.5 bg-pink-400 rounded-full animate-bounce" />
-              <div className="w-1.5 h-1.5 bg-pink-400 rounded-full animate-bounce delay-75" />
-              <div className="w-1.5 h-1.5 bg-pink-400 rounded-full animate-bounce delay-150" />
+              <div className={`w-1.5 h-1.5 rounded-full animate-bounce ${modelMode === 'fast' ? 'bg-yellow-400' : modelMode === 'search' ? 'bg-blue-400' : 'bg-pink-400'}`} />
+              <div className={`w-1.5 h-1.5 rounded-full animate-bounce delay-75 ${modelMode === 'fast' ? 'bg-yellow-400' : modelMode === 'search' ? 'bg-blue-400' : 'bg-pink-400'}`} />
+              <div className={`w-1.5 h-1.5 rounded-full animate-bounce delay-150 ${modelMode === 'fast' ? 'bg-yellow-400' : modelMode === 'search' ? 'bg-blue-400' : 'bg-pink-400'}`} />
             </div>
           </div>
         )}
@@ -281,7 +343,7 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
                type="text"
                value={input}
                onChange={(e) => setInput(e.target.value)}
-               placeholder={isVideoMode ? "Describe the video you want..." : "Message Mommy..."}
+               placeholder={isVideoMode ? "Describe the video you want..." : `Message Mommy (${modelMode})...`}
                className={`w-full bg-transparent border-0 focus:ring-0 text-white placeholder-slate-500 px-2 py-2.5 focus:outline-none text-sm font-medium ${
                  isVideoMode ? 'placeholder-indigo-300/50' : ''
                }`}
@@ -292,6 +354,10 @@ const ChatInterface: React.FC<ChatInterfaceProps> = ({ devices, onDeviceUpdate, 
                className={`p-2.5 rounded-full text-white transition-all transform active:scale-95 shadow-lg mr-1 ${
                  isVideoMode 
                   ? 'bg-gradient-to-r from-indigo-500 to-blue-600 hover:from-indigo-400 hover:to-blue-500 shadow-indigo-500/25' 
+                  : modelMode === 'search'
+                  ? 'bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 shadow-blue-500/25'
+                  : modelMode === 'fast'
+                  ? 'bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-400 hover:to-orange-400 shadow-yellow-500/25 text-black'
                   : 'bg-gradient-to-r from-pink-500 to-purple-600 hover:from-pink-400 hover:to-purple-500 shadow-pink-500/25'
                } disabled:opacity-50 disabled:cursor-not-allowed`}
              >

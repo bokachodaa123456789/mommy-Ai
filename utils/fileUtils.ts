@@ -1,4 +1,5 @@
 
+
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -18,4 +19,24 @@ export const fileToBase64 = (file: File): Promise<string> => {
 
 export const getMimeType = (file: File): string => {
   return file.type;
+};
+
+export const getVideoMetadata = (file: File): Promise<{ duration: number; width: number; height: number }> => {
+  return new Promise((resolve, reject) => {
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.onloadedmetadata = () => {
+      window.URL.revokeObjectURL(video.src);
+      resolve({
+        duration: video.duration,
+        width: video.videoWidth,
+        height: video.videoHeight
+      });
+    };
+    video.onerror = () => {
+        // Don't fail completely, just return 0s if metadata fails
+        resolve({ duration: 0, width: 0, height: 0 }); 
+    };
+    video.src = URL.createObjectURL(file);
+  });
 };

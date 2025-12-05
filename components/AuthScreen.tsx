@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Lock, Mail, User, ShieldCheck, ArrowRight } from 'lucide-react';
+import { Lock, Mail, User, ShieldCheck, ArrowRight, AlertCircle } from 'lucide-react';
 import Header from './Header';
 
 interface AuthScreenProps {
@@ -13,19 +13,48 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
+    setError(null);
     
-    // Simulate API call
+    // Simulate API call and DB check
     setTimeout(() => {
-      onLogin({
-        name: isLogin ? 'Prasanjit' : name,
-        email: email
-      });
-      setIsLoading(false);
-    }, 1500);
+      try {
+        const usersDb = JSON.parse(localStorage.getItem('mommy_users_db') || '[]');
+        
+        if (isLogin) {
+            // Login Logic
+            const foundUser = usersDb.find((u: any) => u.email.toLowerCase() === email.toLowerCase() && u.password === password);
+            if (foundUser) {
+                onLogin({ name: foundUser.name, email: foundUser.email });
+            } else {
+                // For demo purposes, if the DB is empty, let the first login pass as 'Prasanjit' to not break legacy flow,
+                // OR strictly fail. Let's be strict for "multiple user accessing" feature.
+                // But as a fallback for existing demo users, if DB is empty, maybe auto-create? 
+                // No, let's force signup if user doesn't exist.
+                setError("Invalid email or password");
+                setIsLoading(false);
+            }
+        } else {
+            // Signup Logic
+            if (usersDb.find((u: any) => u.email.toLowerCase() === email.toLowerCase())) {
+                setError("User with this email already exists");
+                setIsLoading(false);
+                return;
+            }
+            const newUser = { name, email, password };
+            usersDb.push(newUser);
+            localStorage.setItem('mommy_users_db', JSON.stringify(usersDb));
+            onLogin({ name, email });
+        }
+      } catch (err) {
+        setError("System error. Please clear cache.");
+        setIsLoading(false);
+      }
+    }, 1000);
   };
 
   return (
@@ -54,13 +83,20 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
         <h2 className="text-3xl font-bold text-center text-white mb-2 tracking-tight">
           {isLogin ? 'Welcome Back' : 'Join Mommy'}
         </h2>
-        <p className="text-slate-400 text-center text-sm mb-8 font-medium">
+        <p className="text-slate-400 text-center text-sm mb-6 font-medium">
           {isLogin ? 'Secure authentication required' : 'Create your personal AI companion'}
         </p>
+        
+        {error && (
+            <div className="mb-6 p-3 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-2 text-red-200 text-xs justify-center animate-in fade-in slide-in-from-top-2">
+                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                <p>{error}</p>
+            </div>
+        )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
           {!isLogin && (
-            <div className="relative group">
+            <div className="relative group animate-in slide-in-from-bottom-2 fade-in">
               <User className="absolute left-4 top-4 w-5 h-5 text-slate-500 group-focus-within:text-pink-400 transition-colors" />
               <input
                 type="text"
@@ -115,7 +151,7 @@ const AuthScreen: React.FC<AuthScreenProps> = ({ onLogin }) => {
 
         <div className="mt-8 text-center">
           <button
-            onClick={() => setIsLogin(!isLogin)}
+            onClick={() => { setIsLogin(!isLogin); setError(null); }}
             className="text-xs text-slate-500 hover:text-pink-300 transition-colors font-medium tracking-wide uppercase"
           >
             {isLogin ? "Create new account" : "Back to login"}
